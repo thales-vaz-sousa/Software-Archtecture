@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mapa mental 3D — Arquitetura de software com IA</title>
+<style>
+:root{--bg:#0b1020;--ink:#eaf0ff;--mute:#9aa7c7;--panel:rgba(17,24,48,.96);box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0;background:radial-gradient(ellipse at 50% 40%,#182247 0%,#0b1020 65%) var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+body{position:relative}
+#stage{position:absolute;inset:0;touch-action:none;cursor:grab}
+#stage canvas{display:block;width:100%;height:100%}
+#top{position:absolute;left:12px;right:12px;top:10px;pointer-events:none}
+#top h1{font-size:15px;font-weight:650;margin:0 0 2px}
+#top p{font-size:12px;color:var(--mute);margin:0 0 8px}
+#btns{display:flex;gap:8px;flex-wrap:wrap;pointer-events:auto}
+button{font:inherit;font-size:13px;color:var(--ink);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:7px 13px;cursor:pointer}
+button:hover{background:rgba(255,255,255,.16)}
+button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+#src{position:absolute;left:12px;right:12px;bottom:10px;font-size:11px;color:var(--mute);pointer-events:none}
+#panel{position:absolute;left:0;right:0;bottom:0;max-height:44%;overflow:auto;background:var(--panel);border-top:3px solid var(--c,#fff);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));transform:translateY(105%);transition:transform .28s ease;box-shadow:0 -10px 30px rgba(0,0,0,.4)}
+#panel.open{transform:none}
+#panel h2{font-size:17px;margin:0 32px 6px 0}
+#panel p{font-size:14.5px;line-height:1.5;margin:0 0 10px;max-width:70ch}
+#x{position:absolute;right:10px;top:8px;padding:4px 11px;font-size:18px;line-height:1}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{font-size:12.5px;padding:5px 10px;border-color:var(--c)}
+.chips button.on{background:var(--c);color:#0b1020;font-weight:650}
+body.op #src{display:none}
+</style>
+</head>
+<body>
+<div id="stage" aria-label="Mapa mental 3D interativo"></div>
+<div id="top">
+  <h1>Arquitetura de software com IA</h1>
+  <p>Toque num ramo para ver os detalhes · arraste para girar · pince para zoom</p>
+  <div id="btns"><button id="rc">Recentralizar</button><button id="ar">Girar automático: ligado</button></div>
+</div>
+<div id="src">Fontes: Martínez-Fernández et al. (2022); Lewis et al. (2023); Kästner (2024); Google Cloud (2024).</div>
+<div id="panel" role="region" aria-live="polite"><button id="x" aria-label="Fechar">×</button><div id="pc"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============ DADOS DO MAPA (edite aqui) ============ */
+const DATA = {
+  center: { t: "Arquitetura de Software com IA", c: "#FFE9A8",
+    d: "Como integrar modelos de IA como serviços ou camadas dentro de sistemas de software, sem jogar fora a arquitetura tradicional. Toque em um ramo para ver os detalhes. Fontes: Martínez-Fernández et al. (2022); Lewis et al. (2023); Kästner (2024); Google Cloud (2024)." },
+  branches: [
+    { t: "Definição", c: "#5EC8F2", d: "O que caracteriza um sistema com IA e o que muda na arquitetura.", kids: [
+      { t: "≥ 1 componente de IA", d: "Sistema baseado em IA é um sistema de software que inclui ao menos um componente de IA; ele aprende analisando o ambiente e age buscando comportamento inteligente (Martínez-Fernández et al., 2022)." },
+      { t: "Comportamento vem dos dados", d: "Regras e comportamento são inferidos dos dados de treinamento, e não apenas escritos como código (Martínez-Fernández et al., 2022)." },
+      { t: "Treino, inferência, dados, MLOps", d: "Componentes típicos de ML: treino e atualização do modelo, serviço de inferência, infraestrutura de dados e pipelines MLOps (Lewis et al., 2023)." } ] },
+    { t: "Comunicação com o modelo", c: "#F2B84B", d: "Como a aplicação envia solicitações ao modelo e recebe respostas.", kids: [
+      { t: "Requisição/resposta HTTP", d: "A aplicação envia a entrada a um serviço de IA por uma API (geralmente REST com JSON) e recebe a predição como resposta." },
+      { t: "Modelo interno ou externo", d: "O modelo pode ser um serviço do próprio sistema ou uma API de terceiros, como o GPT-Engineer, que usa o modelo da OpenAI (Kästner, 2024)." },
+      { t: "Síncrono ou assíncrono (fila)", d: "Síncrono: o cliente espera a resposta. Assíncrono: as tarefas vão para uma fila e workers processam, como no Open-Assistant (Kästner, 2024)." } ] },
+    { t: "Modelo como serviço", c: "#7BE0A4", d: "Formas de disponibilizar um modelo treinado (Google Cloud, 2024).", kids: [
+      { t: "Microsserviço com API REST", d: "O modelo é servido como microsserviço com API REST para previsões online (Google Cloud, 2024)." },
+      { t: "Embarcado (celular/borda)", d: "O modelo é embutido em um dispositivo móvel ou de borda (Google Cloud, 2024)." },
+      { t: "Em lote (batch)", d: "O modelo faz parte de um sistema de previsão em lote (Google Cloud, 2024)." },
+      { t: "Empacotado em container", d: "Modelo e código de inferência empacotados em container (Docker) para implantar e escalar; padrão visto nos projetos analisados por Kästner (2024)." } ] },
+    { t: "Arquitetura em camadas", c: "#F2777A", d: "Como o serviço de IA se encaixa em Apresentação, Negócio e Dados.", kids: [
+      { t: "Apresentação → Negócio → Dados", d: "A estrutura clássica em camadas continua a mesma; o serviço de IA fica ao lado da camada de negócio." },
+      { t: "Negócio chama o serviço de IA", d: "A camada de negócio consome o serviço de IA como qualquer outra dependência, por um cliente ou adaptador." },
+      { t: "UI e banco não conhecem o modelo", d: "Interface e banco de dados não sabem que existe um modelo. Corresponde ao padrão de separar lógica de negócio e modelo de ML (Kästner, 2024)." } ] },
+    { t: "Microsserviços", c: "#B69CFF", d: "A IA como mais um serviço independente da arquitetura.", kids: [
+      { t: "IA como serviço independente", d: "O componente de IA é um microsserviço próprio, com sua API e seu container." },
+      { t: "API gateway + fila + workers", d: "O gateway roteia as chamadas; workers de IA puxam tarefas de uma fila, como no Open-Assistant (Kästner, 2024)." },
+      { t: "Escala independente", d: "Cada serviço escala separadamente. No LibrePhotos, os backends de IA rodam como subprocessos no mesmo container e não escalam isolados (Kästner, 2024)." } ] },
+    { t: "Sistema existente", c: "#FF9F5A", d: "Como adicionar IA a uma arquitetura já em produção.", kids: [
+      { t: "Adiciona sem reescrever", d: "O serviço de IA é acrescentado ao lado do sistema; a estrutura atual permanece. Exemplo: o LibrePhotos ganhou reconhecimento facial, legendas e busca semântica (Kästner, 2024)." },
+      { t: "Adaptador HTTP", d: "O backend atual passa a chamar o serviço de IA por um adaptador (cliente HTTP)." },
+      { t: "Fallback para regra antiga", d: "Sugestão da equipe: se a IA falhar ou demorar, o sistema usa a regra que já existia." } ] },
+    { t: "Vantagens e desvantagens", c: "#63E0D6", d: "Ganhos e cuidados dessa integração.", kids: [
+      { t: "(+) Separação, escala, reuso", d: "IA encapsulada em serviço próprio, escala independente e reaproveitamento de arquiteturas conhecidas (Kästner, 2024)." },
+      { t: "(–) MLOps e incerteza", d: "Integrar MLOps ao DevOps é desafio central, e modelos trazem não determinismo e exigem monitoramento (Lewis et al., 2023)." },
+      { t: "(–) Testes e segurança", d: "Nos sistemas analisados, componentes de IA quase não eram testados e segurança/safety foi pouco tratada (Kästner, 2024)." } ] },
+    { t: "Caso real", c: "#F28BC6", d: "Três sistemas open source analisados por Kästner (2024).", kids: [
+      { t: "Open-Assistant", d: "Assistente de chat em microsserviços: frontend, backend, servidor de inferência, workers em fila e um serviço de segurança que valida o prompt antes da inferência." },
+      { t: "LibrePhotos", d: "Gestão de fotos com IA (rostos, legendas, busca semântica) em pequenos backends próprios, iniciados como subprocessos no mesmo container." },
+      { t: "GPT-Engineer", d: "Aplicação de linha de comando que usa um modelo externo (como o GPT-4) por API da OpenAI." } ] }
+  ]
+};
+/* ============ FIM DOS DADOS ============ */
+
+const V3 = THREE.Vector3, Q = THREE.Quaternion;
+const stage = document.getElementById('stage');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, 1, .1, 200);
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+const root = new THREE.Group(); scene.add(root);
+scene.add(new THREE.AmbientLight(0xffffff, .65));
+const pl = new THREE.PointLight(0xffffff, 1.1); pl.position.set(0, 4, 26); scene.add(pl);
+
+function glowTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const x = c.getContext('2d'), g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(.35, 'rgba(255,255,255,.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c);
+}
+const GT = glowTex();
+
+function wrap(t, max) {
+  const out = []; let cur = '';
+  t.split(' ').forEach(w => { if ((cur + ' ' + w).trim().length > max && cur) { out.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); });
+  if (cur) out.push(cur); return out;
+}
+function makeLabel(txt, lineH, col, bold, maxChars, radius) {
+  const lines = wrap(txt, maxChars), fs = 44, lh = fs * 1.2, font = `${bold ? 700 : 500} ${fs}px system-ui,sans-serif`;
+  const c = document.createElement('canvas'), x = c.getContext('2d'); x.font = font;
+  const w = Math.ceil(Math.max(...lines.map(l => x.measureText(l).width))) + 50, h = Math.ceil(lines.length * lh + 30);
+  c.width = w; c.height = h; x.font = font; x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillStyle = 'rgba(11,16,32,.82)'; x.strokeStyle = col; x.lineWidth = 3;
+  x.beginPath(); x.roundRect ? x.roundRect(2, 2, w - 4, h - 4, 22) : x.rect(2, 2, w - 4, h - 4); x.fill(); x.stroke();
+  x.fillStyle = '#fff'; lines.forEach((l, i) => x.fillText(l, w / 2, 15 + lh * (i + .5)));
+  const tex = new THREE.CanvasTexture(c); tex.minFilter = THREE.LinearFilter;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  const k = lineH / lh, sx = w * k, sy = h * k;
+  sp.scale.set(sx, sy, 1); sp.center.set(.5, -(radius + .1) / sy); sp.renderOrder = 10; return sp;
+}
+
+const nodes = [], pickables = [], groups = [], lines = [];
+function addNode(parent, pos, col, r, text, lineH, bold, maxC, meta) {
+  const color = new THREE.Color(col);
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 20), new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: .55, roughness: .35, metalness: .1, transparent: true }));
+  mesh.position.copy(pos);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: GT, color, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, opacity: .6 }));
+  glow.position.copy(pos); glow.scale.setScalar(r * 7);
+  const label = makeLabel(text, lineH, col, bold, maxC, r); label.position.copy(pos);
+  const hit = new THREE.Mesh(new THREE.SphereGeometry(Math.max(r * 1.9, .6), 8, 6), new THREE.MeshBasicMaterial({ visible: false }));
+  hit.position.copy(pos);
+  parent.add(mesh, glow, label, hit);
+  const n = Object.assign({ mesh, glow, label, hit, r, s: 1, ts: 1, ph: Math.random() * 6.28 }, meta);
+  hit.userData.node = label.userData.node = n; pickables.push(hit, label); nodes.push(n); return n;
+}
+function addLine(parent, a, b, col) {
+  const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: .55 }));
+  parent.add(l); return l;
+}
+
+const centerNode = addNode(root, new V3(), DATA.center.c, 1, DATA.center.t, .72, true, 14, { kind: 'center', bi: -1, data: DATA.center });
+const R1 = 5.6, N = DATA.branches.length;
+DATA.branches.forEach((b, i) => {
+  const g = new THREE.Group(); root.add(g); groups.push({ g, ph: Math.random() * 6.28 }); lines[i] = [];
+  const y = 1 - (i + .5) * 2 / N, rr = Math.sqrt(1 - y * y), th = i * 2.399963;
+  const dir = new V3(Math.cos(th) * rr, y, Math.sin(th) * rr), bp = dir.clone().multiplyScalar(R1);
+  lines[i].push(addLine(g, new V3(), bp, b.c));
+  const bn = addNode(g, bp, b.c, .6, b.t, .58, true, 13, { kind: 'branch', bi: i, ki: -1, data: b });
+  let u = new V3().crossVectors(dir, new V3(0, 1, 0)); if (u.length() < .2) u = new V3(1, 0, 0); u.normalize();
+  const v = new V3().crossVectors(dir, u), K = b.kids.length;
+  b.kids.forEach((k, j) => {
+    const a = j / K * 6.283 + i * .7;
+    const kp = bp.clone().addScaledVector(dir, 1.6).addScaledVector(u, Math.cos(a) * 2.4).addScaledVector(v, Math.sin(a) * 2.4);
+    lines[i].push(addLine(g, bp, kp, b.c));
+    addNode(g, kp, b.c, .3, k.t, .42, false, 15, { kind: 'kid', bi: i, ki: j, data: k });
+  });
+});
+
+const stars = (() => {
+  const n = 700, a = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { const r = 55 + Math.random() * 60, u = Math.random() * 2 - 1, th = Math.random() * 6.283, q = Math.sqrt(1 - u * u); a[i * 3] = r * q * Math.cos(th); a[i * 3 + 1] = r * u; a[i * 3 + 2] = r * q * Math.sin(th); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(a, 3));
+  const p = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xaab8ff, size: .55, transparent: true, opacity: .55, depthWrite: false })); scene.add(p); return p;
+})();
+/* ---------- estado e câmera ---------- */
+let camDist = 24, curDist = 24, defDist = 24, zoomed = false, autoRot = !reduce, focusing = false, dragging = false, sel = null;
+const targetQ = new Q(), focusLocal = new V3(), focusTarget = new V3(); let panelOn = false, yOff = 0;
+function computeDef() { const a = innerWidth / innerHeight; defDist = a < .7 ? 27 : a < 1.1 ? 22 : 18; }
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix(); computeDef(); if (!zoomed && !sel) camDist = defDist;
+}
+addEventListener('resize', resize); resize(); curDist = camDist;
+
+/* ---------- seleção ---------- */
+const panel = document.getElementById('panel'), pc = document.getElementById('pc');
+function applyHighlight() {
+  nodes.forEach(n => {
+    const on = !sel || n.kind === 'center' || n.bi === sel.bi, o = on ? 1 : .16;
+    n.mesh.material.opacity = o; n.label.material.opacity = n.kind === 'kid' ? (sel && sel.bi === n.bi ? 1 : 0) : o; n.glow.userData.o = on ? .6 : .1;
+    n.ts = n === sel ? 1.45 : 1;
+    const isSel = n === sel;
+    if (sel && !isSel && n.kind === 'center') { n.mesh.material.opacity = .35; n.label.material.opacity = .2; }
+    else if (sel && !isSel && on && n.kind !== 'kid') n.label.material.opacity = .7;
+    else if (sel && !isSel && on && n.kind === 'kid') n.label.material.opacity = .75;
+    n.mesh.renderOrder = isSel ? 30 : 0; n.mesh.material.depthTest = !isSel;
+    n.glow.renderOrder = isSel ? 29 : 0; n.label.renderOrder = isSel ? 31 : 10;
+  });
+  lines.forEach((ls, i) => ls.forEach(l => l.material.opacity = (!sel || sel.bi === i) ? .6 : .08));
+}
+function nodeRootPos(n, out) {
+  if (n.kind === 'center') return out.set(0, 0, 0);
+  return out.copy(n.mesh.position).applyMatrix4(n.mesh.parent.matrix);
+}
+function focusOn(n) { focusing = false; camDist = defDist * (n.kind === 'center' ? 1 : .6); zoomed = true; }
+function select(n) {
+  sel = n; panelOn = true; applyHighlight(); focusOn(n);
+  const col = n.kind === 'center' ? DATA.center.c : DATA.branches[n.bi].c;
+  panel.style.setProperty('--c', col);
+  let html = `<h2>${n.data.t}</h2><p>${n.data.d}</p>`;
+  if (n.kind !== 'center') {
+    const b = DATA.branches[n.bi];
+    html += `<div class="chips"><button data-b="${n.bi}" class="${n.kind === 'branch' ? 'on' : ''}">${b.t}</button>` +
+      b.kids.map((k, j) => `<button data-b="${n.bi}" data-k="${j}" class="${n.ki === j ? 'on' : ''}">${k.t}</button>`).join('') + '</div>';
+  } else {
+    html += `<div class="chips">` + DATA.branches.map((b, i) => `<button data-b="${i}" style="border-color:${b.c}">${b.t}</button>`).join('') + '</div>';
+  }
+  pc.innerHTML = html; panel.style.setProperty('--c', col); panel.classList.add('open'); document.body.classList.add('op'); panel.scrollTop = 0;
+}
+pc.addEventListener('click', e => {
+  const b = e.target.closest('button[data-b]'); if (!b) return;
+  const bi = +b.dataset.b, ki = b.dataset.k === undefined ? -1 : +b.dataset.k;
+  select(nodes.find(n => n.bi === bi && (n.kind === 'branch' ? ki < 0 : n.ki === ki)));
+});
+function closePanel() { sel = null; panelOn = false; focusTarget.set(0, 0, 0); zoomed = false; camDist = defDist; applyHighlight(); panel.classList.remove('open'); document.body.classList.remove('op'); }
+document.getElementById('x').onclick = closePanel;
+document.getElementById('rc').onclick = () => { closePanel(); targetQ.identity(); focusing = true; };
+const arBtn = document.getElementById('ar');
+function arLabel() { arBtn.textContent = 'Girar automático: ' + (autoRot ? 'ligado' : 'desligado'); }
+arBtn.onclick = () => { autoRot = !autoRot; arLabel(); }; arLabel();
+applyHighlight();
+
+/* ---------- controles (Pointer Events) ---------- */
+const ray = new THREE.Raycaster(), ptrs = new Map(); let down = null, pinch0 = 0;
+const el = renderer.domElement;
+el.addEventListener('pointerdown', e => {
+  el.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) down = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+  else { down = null; const [a, b] = [...ptrs.values()]; pinch0 = Math.hypot(a.x - b.x, a.y - b.y); }
+  stage.style.cursor = 'grabbing';
+});
+el.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  if (ptrs.size === 1) {
+    if (down && !down.moved && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 7) down.moved = true;
+    if (down && down.moved) {
+      dragging = true; focusing = false;
+      root.quaternion.premultiply(new Q().setFromAxisAngle(new V3(1, 0, 0), dy * .006)).premultiply(new Q().setFromAxisAngle(new V3(0, 1, 0), dx * .006));
+    }
+  } else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinch0) { camDist = Math.min(45, Math.max(7, camDist * pinch0 / d)); zoomed = true; } pinch0 = d;
+  }
+});
+function up(e) {
+  const was = ptrs.has(e.pointerId); ptrs.delete(e.pointerId);
+  if (was && e.type === 'pointerup' && down && !down.moved && performance.now() - down.t < 600) pick(e);
+  if (ptrs.size === 0) { dragging = false; down = null; stage.style.cursor = 'grab'; }
+  if (ptrs.size < 2) pinch0 = 0;
+}
+el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+el.addEventListener('wheel', e => { e.preventDefault(); camDist = Math.min(45, Math.max(7, camDist * (1 + e.deltaY * .001))); zoomed = true; }, { passive: false });
+function pick(e) {
+  const r = el.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+  const h = ray.intersectObjects(pickables, false).filter(x => !(x.object.isSprite && x.object.material.opacity < .3));
+  if (h.length) select(h[0].object.userData.node);
+}
+
+/* ---------- loop ---------- */
+const clock = new THREE.Clock(), yAx = new V3(0, 1, 0);
+(function loop() {
+  requestAnimationFrame(loop);
+  const t = clock.getElapsedTime();
+  if (focusing) { root.quaternion.slerp(targetQ, .09); if (root.quaternion.angleTo(targetQ) < .004) focusing = false; }
+  else if (autoRot && !sel && !dragging) root.quaternion.premultiply(new Q().setFromAxisAngle(yAx, .0025));
+  curDist += (camDist - curDist) * .1; camera.position.set(0, 0, curDist);
+  if (sel) nodeRootPos(sel, focusTarget);
+  focusLocal.lerp(focusTarget, .09);
+  yOff += ((panelOn ? curDist * .2 : 0) - yOff) * .1;
+  root.position.copy(focusLocal).negate().applyQuaternion(root.quaternion); root.position.y += yOff;
+  stars.rotation.y = t * .004;
+  if (!reduce) groups.forEach((o, i) => { o.g.rotation.set(Math.sin(t * .6 + o.ph) * .035, Math.cos(t * .5 + o.ph) * .035, Math.sin(t * .4 + o.ph * 2) * .02); });
+  nodes.forEach(n => {
+    n.s += (n.ts - n.s) * .15; n.mesh.scale.setScalar(n.s); n.label.center.y = -(n.r * n.s + .1) / n.label.scale.y;
+    const base = n.glow.userData.o ?? .6, pulse = reduce ? 1 : .85 + .15 * Math.sin(t * 1.6 + n.ph);
+    n.glow.material.opacity = base * pulse; n.glow.scale.setScalar(n.r * 7 * n.s);
+  });
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>
